@@ -20,7 +20,6 @@ from mavros_msgs.srv import CommandBool, CommandTOL, SetMode
 from tf.transformations import euler_from_quaternion
 
 # ================= 用户配置参数（需根据实际情况修改）=================
-SERIAL_PORT = "/dev/ttyACM1"   # Pico 串口设备号，可通过 ls /dev/tty* 确认
 BAUD_RATE = 115200             # 串口波特率，必须与 Pico 代码一致
 
 # 航点文件路径（格式：x y z 悬停时间(秒)）
@@ -70,13 +69,20 @@ class MissionCommander:
         self.index_history = []  # 记录已处理过的目标ID，防止同一目标重复投放
 
         # --- 串口初始化（连接Pico）---
-        try:
-            self.pico = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-            rospy.loginfo(f"Serial port {SERIAL_PORT} connected.")
-            time.sleep(2) # 等待Pico重启复位，确保串口稳定
-        except Exception as e:
-            rospy.logerr(f"FATAL: Serial connect failed: {e}")
-            self.pico = None # 串口打开失败，无法抛投，但仍可飞行
+        # 尝试多个可能的串口端口，直到连接成功或全部失败
+        port_list = ['/dev/ttyACM0', '/dev/ttyACM1']
+        self.pico = None
+        for port in port_list:
+            try:
+                self.pico = serial.Serial(port, BAUD_RATE, timeout=1)
+                rospy.loginfo(f"Serial port {port} connected.")
+                time.sleep(2)  # 等待Pico重启复位，确保串口稳定
+                break
+            except Exception as e:
+                rospy.logwarn(f"连接串口 {port} 失败: {e}")
+                continue
+        if self.pico is None:
+            rospy.logerr("FATAL: 无法打开任何串口，无人机仍可飞行但无法投放")
 
         # --- ROS 通信设置 ---
         self.sub_state = rospy.Subscriber("/mavros/state", State, self.state_cb, queue_size=10)
@@ -445,3 +451,4 @@ if __name__ == "__main__":
         commander.run()
     except rospy.ROSInterruptException:
         pass
+
